@@ -7,4 +7,4 @@
 방법은 간단하다. 사용자 정의 클래스에 `keras.Model`을 상속시켜 사용자 정의 클래스가 텐서플로에서 자체제공하는 신경망 모델에 필요한 필수 매개변수들을 처리할 수 있게 만든다. 이후 사용자 정의 클래스의 `__init__` (생성자)에서 필요한 층과 변수를 정의하고 `call()` 메서드에 순전파 (propagation) 과정을 구현한다. 
 
 
-![ResisualBlock](https://user-images.githubusercontent.com/61273017/83326963-40e7cc00-a2b3-11ea-8591-612087f18815.png){: width ="10" height = "10"}
+<img src = "https://user-images.githubusercontent.com/61273017/83327571-d2593d00-a2b7-11ea-80a2-fbd0bfcd519a.png" width = "500" height = "400">
