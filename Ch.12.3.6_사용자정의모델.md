@@ -7,13 +7,14 @@
 방법은 간단하다. 사용자 정의 클래스에 `keras.Model`을 상속시켜 사용자 정의 클래스가 텐서플로에서 자체제공하는 신경망 모델에 필요한 필수 매개변수들을 처리할 수 있게 만든다. 이후 사용자 정의 클래스의 `__init__` (생성자)에서 필요한 층과 변수를 정의하고 `call()` 메서드에 순전파 (propagation) 과정을 구현한다. 아래의 [그림 1]과 같은 모델을 만든다고 가정해보자.
 
 <p align = "center"><img src = "https://user-images.githubusercontent.com/61273017/83327571-d2593d00-a2b7-11ea-80a2-fbd0bfcd519a.png" width = "500" height = "400"></p>
-<p align = "center"> [그림 1] 사용자 정의 모델: 스킵 연결이 있는 사용자 정의 잔차 블록(ResidualBlock) 층을 가진 예제 모델 </p>
+<p align = "center"> [그림1] 사용자 정의 모델: 스킵 연결이 있는 사용자 정의 잔차 블록(ResidualBlock) 층을 가진 예제 모델 </p>
 
 사용자 정의 모델은 Dense - ResidualBlock1 - ResidualBlock2 - Dense로 구축되어있다. ResidualBlock층은 두 개의 완전 연결층 (Dense)과 스킵 연결로 구성되어 있다. 모델의 작동순서는 다음과 같다.
 - 입력값이 완전 연결층 (Dense)을 통과하여 중간값으로 반환된다.
-- 중간값이 첫번째 잔차블록층 (ResidualBlock1)을 세 번 통과한다.
+- 중간값이 첫번째 은닉층 : 잔차블록층 (ResidualBlock1)을 4회 통과한다.
+  - 총 4회 통과하는 이유는 [그림1] 에 보이는바와 같이 첫번째 은닉층 최초 1회 통과 + 첫번째 은닉층 통과 3회 반복 = 4회 통과이기 때문이다.
   - 첫번째 잔차블록층은 서브레이어로서 연속된 2개의 완전 연결층과 스킵연결 과정으로 구성되어 있다. 
-- 중간값이 두번째 잔차블록층 (ResidualBlock2)을 통과한다.
+- 중간값이 두번째 은닉층 : 잔차블록층 (ResidualBlock2)을 통과한다.
 - 중간값이 완전 연결층 (Dense)을 통과하여 출력값으로 반환된다.
 
 아래의 코드는 ResidualBlock 층을 만드는 코드이다.
@@ -45,6 +46,26 @@ class ResidualBlock(keras.layers.Layer):
 
 위에서 `ResidualBlock()` 층을 정의하였으므로 이제 `ResidualBlock()` 층을 포함한 신경망 모델을 정의해보겠다. 신경망 모델의 이름은 잔차회귀 `ResidualRegressor`이며 아래의 코드와 같이 정의된다.
 
-실험 ㅋ
-커밋 실험ㅋzz
- 
+ ```python
+ class ResidualRegressor(keras.Model):
+
+    # 잔차회귀 (ResidualRegressor) 신경망 모델의 필수 매개변수들 정의
+    ## 보통 신경망 모델에 사용될 각 층들을 정의한다.
+    def __init__(self, output_dim, **kwargs):
+        super().__init__(**kwargs)
+        self.hidden1 = keras.layers.Dense(30, activation = "elu", kernel_initializer = "he_normal") # 뉴런 개수가 30개인 완전연결 입력층을 인스턴스 속성으로 정의
+        self.block1 = ResidualBlock(2, 30) # 첫번째 잔차블록층을 인스턴스 속성으로 정의 : n_layers = 2, n_neurons = 30
+        self.block2 = ResidualBlock(2, 30) # 두번째 잔차블록층을 인스턴스 속성으로 정의 :
+        self.out = keras.layers.Dense(output_dim) # 뉴런 개수가 output_dim개인 완전연결 출력층을 인스턴스 속성으로 정의
+
+    # 잔차회귀 신경망 모델의 순전파 프로시져를 정의
+    ## 입력값이 입력층 - 은닉층 - 출력층을 통과하는 작동 방식을 정의한다.
+    def call(self, inputs):
+        Z = self.hidden1(inputs)
+        for _ in range(1 + 3):
+            Z = self.block1(Z)
+        Z = self.block2(Z)
+        return self.out(Z)
+ ```
+
+ 코드에 대한 해설은 다음과 같다.
