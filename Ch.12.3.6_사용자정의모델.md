@@ -31,7 +31,7 @@ class ResidualBlock(keras.layers.Layer):
         return inputs + Z
 ```
 코드에 대한 해설은 다음과 같다.
-- `keras.layers.Layer` 를 부모 클래스로 상속받는다,
+- 부모 클래스로 `keras.layers.Layer` 를 상속한다.
 - **`__init__()`은 층의 필수 매개변수들을 초기화** 한다. 
   - `super()` 를 통해 부모 클래스의 `__init__()` 에 정의된 인스턴스 속성, 즉 매개변수들 (`**kwargs`)을 상속받아 `ResidualBlock()` 클래스의 인스턴스 속성으로 초기화 한다. 
     - 해당 과정이 없으면 `keras.layers.Layer` 클래스를 상속하더라도 인스턴스 속성의 상속이 명시화되지 않아 `ResidualBlock()` 클래스에서 사용할 수 없다
