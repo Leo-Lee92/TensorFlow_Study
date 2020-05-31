@@ -7,4 +7,3 @@
 그러나 때로는 실제 값 (입력 값)과 예측 값 (출력 값)이 아닌 중간 값 (은닉층의 가중치 혹은 중간 활성화 층의 반환 값) 등과 같이 모델의 구성 요소를 기반으로 손실을 정의해야 할 때가 있다. 이렇게 중간 값
 
 
-<a href="https://www.codecogs.com/eqnedit.php?latex=\hat{y}" target="_blank"><img src="https://latex.codecogs.com/gif.latex?\hat{y}" title="\hat{y}" /></a>
