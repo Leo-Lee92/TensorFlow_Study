@@ -9,3 +9,5 @@
 ```math
 SE = \frac{\sigma}{\sqrt{n}}
 ```
+
+TeXify 체크
