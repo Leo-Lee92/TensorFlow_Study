@@ -46,3 +46,5 @@ class ResidualBlock(keras.layers.Layer):
 위에서 `ResidualBlock()` 층을 정의하였으므로 이제 `ResidualBlock()` 층을 포함한 신경망 모델을 정의해보겠다. 신경망 모델의 이름은 잔차회귀 `ResidualRegressor`이며 아래의 코드와 같이 정의된다.
 
 실험 ㅋ
+커밋 실험ㅋzz
+ 
