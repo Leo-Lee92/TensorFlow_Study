@@ -107,7 +107,7 @@ if __name__ == "__main__":
     optimizer = Adam(1e-8)
 
     # 하이퍼 파라미터 정의
-    num_epochs = 200
+    num_epochs = 20
     batch_size = 32
     x_train_size = x_train.shape[0]
     x_test_size = x_test.shape[0]
@@ -128,15 +128,11 @@ if __name__ == "__main__":
                 preds = MNIST_Classifier(x_batch)
                 losses = cross_entropy(preds, y_batch)
 
+
             grads = tape.gradient(losses, trainable_params)
             optimizer.apply_gradients(zip(grads, trainable_params))
 
-    
-    predicted_y = MNIST_Classifier(x_test.reshape(-1, 28 * 28))
-
-    # np.amax(predicted_y, axis = 1)
-
-    # y_test
+        print('loss :', losses)
 
 
     
