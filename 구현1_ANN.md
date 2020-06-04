@@ -121,7 +121,7 @@ optimizer.apply_gradients(zip(grads, model_params)) # 과정 5의 업데이트
 - `optimizer.apply_gradients(zip(grads, model_params))` : 위에서 계산한 grads을 과정 3에서 정의한 최적화 알고리즘에 활용하여 model_params(t)을 model_params(t+1)로 업데이트 한다. 
   - `zip()`은 동일한 인덱스 크기를 가진 리스트를 column-wise stacking해주는 역할을 한다. 즉  `optimizer.apply_gradients()` 메서드는 grads와 model_params 리스트를 column-wise stacking 한 데이터를 요구한다고 보면 된다.
 
-MNIST 흑백 의류이미지를 분류하는 CNN 망을 학습하는 전체 코드는 아래와 같이 작성하면 된다.
+MNIST 흑백 의류이미지를 분류하는 ANN 망을 학습하는 전체 코드는 아래와 같이 작성하면 된다.
 
 ```python
 # %%
