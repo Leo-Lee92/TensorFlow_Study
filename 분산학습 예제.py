@@ -1,0 +1,220 @@
+# %%
+# https://www.tensorflow.org/tutorials/distribute/custom_training?hl=ko 를 따라하였음
+# 훈련 루프와 함께 tf.distribute.Strategy 사용하기
+
+# %%
+# Import TensorFlow
+import tensorflow as tf
+
+# 헬퍼 라이브러리들
+import numpy as np
+import os
+print(tf.__version__)
+
+# %%
+fashion_mnist = tf.keras.datasets.fashion_mnist
+
+(train_images, train_labels), (test_images, test_labels) = fashion_mnist.load_data()
+
+# 하나의 차원을 배열에 추가 -> 새로운 shape == (28, 28, 1)
+# 이렇게 하는 이유는 우리의 모델에서 첫 번째 층이 합성곱 층이고
+# 합성곱 층은 4D 입력을 요구하기 때문입니다.
+# (batch_size, height, width, channels).
+# batch_size 차원은 나중에 추가할 것입니다.
+
+train_images = train_images[..., None]
+test_images = test_images[..., None]
+
+# 이미지를 [0, 1] 범위로 변경하기.
+np.max(train_images) # 정규화를 위해 max 값 (255) 확인
+train_images = train_images / np.float32(255)
+test_images = test_images / np.float32(255)
+
+# %%
+# (1) 변수와 그래프를 분산하는 전략 만들기
+## tf.distribute.MirroredStrategy 전략이 어떻게 동작할까요?
+### 모든 변수와 모델 그래프는 장치(replicas, 다른 문서에서는 replica가 분산 훈련에서 장치 등에 복제된 모델을 의미하는 경우가 있으나 이 문서에서는 장치 자체를 의미합니다)에 복제됩니다.
+### 입력은 장치에 고르게 분배되어 들어갑니다.
+### 각 장치는 주어지는 입력에 대해서 손실(loss)과 그래디언트를 계산합니다.
+### 그래디언트들을 전부 더함으로써 모든 장치들 간에 그래디언트들이 동기화됩니다.
+### 동기화된 후에, 동일한 업데이트가 각 장치에 있는 변수의 복사본(copies)에 동일하게 적용됩니다.
+
+# 만약 장치들의 목록이 `tf.distribute.MirroredStrategy` 생성자 안에 명시되어 있지 않다면,
+# 자동으로 장치를 인식할 것입니다.
+strategy = tf.distribute.MirroredStrategy()
+
+print ('장치의 수: {}'.format(strategy.num_replicas_in_sync))
+
+# %%
+# (2) 입력 파이프라인 설정하기
+## 그래프와 변수를 플랫폼과 무관한 SavedModel 형식으로 내보냅니다. 모델을 내보냈다면, 모델을 불러올 때 범위(scope)를 지정해도 되고 하지 않아도 됩니다.
+BUFFER_SIZE = len(train_images) # BUFFER_SIZE는 셔플할 데이터를 담을 그릇의 크기. 전체 데이터 셋의 크기와 같거나 크게 설정해야 함
+
+BATCH_SIZE_PER_REPLICA = 64
+GLOBAL_BATCH_SIZE = BATCH_SIZE_PER_REPLICA * strategy.num_replicas_in_sync
+
+EPOCHS = 10
+
+## 분산 데이터셋들을 strategy.scope 내에 생성합니다.
+with strategy.scope():
+  
+  # (train_images, train_labels) : train_images 텐서와 train_labels 텐서를 튜플로 묶어 줌. 
+  ## 튜플로 묶었다는 것은 train_images (X)와 train_labels(y)를 columns-wise binding (X, y)했다는 뜻. 
+  ## 주의) 튜플로 묶는 것은 텐서에 차원을 추가하는 것이 아니다! 별개의 텐서들이 하나의 example로 묶이는 것임.
+   
+  # Dataset.from_tensor_slices는 텐서를 슬라이싱하는 기능을 수행함.
+  ## example의 X텐서와 y텐서를 두 텐서의 첫번째 차원을 따라 함께 슬라이싱 함
+
+  # shuffle(BUFFER_SIZE) : 데이터 셋에서 BUFFER_SIZE 크기만큼의 샘플을 뽑아 셔플링 함
+  # batch(GLOBAL_BATCH_SIZE) : 데이서 셋을 각 배치의 크기가 GLOBAL_BATCH_SIZE인 배치로 분할함 
+
+  # experimental_distribute_dataset(train_dataset) : tf.data.Dataset 타입인 데이터를 분산형 데이터 셋으로 만듦.
+  ## 분산형 데이터 셋은 원래 데이터 셋에서 각 GPU에 배치가 분산되도록 GPU 개수만큼의 분산배치를 자동생성함.  
+  train_dataset = tf.data.Dataset.from_tensor_slices((train_images, train_labels)).shuffle(BUFFER_SIZE).batch(GLOBAL_BATCH_SIZE) 
+  train_dist_dataset = strategy.experimental_distribute_dataset(train_dataset)
+  
+  test_dataset = tf.data.Dataset.from_tensor_slices((test_images, test_labels)).batch(GLOBAL_BATCH_SIZE) 
+  test_dist_dataset = strategy.experimental_distribute_dataset(test_dataset)
+
+# %%
+# (3) 모델 만들기
+## tf.keras.Sequential을 사용해서 모델을 생성합니다. Model Subclassing API로도 모델 생성을 할 수 있습니다.
+def create_model():
+  model = tf.keras.Sequential([
+      tf.keras.layers.Conv2D(32, 3, activation='relu'),
+      tf.keras.layers.MaxPooling2D(),
+      tf.keras.layers.Conv2D(64, 3, activation='relu'),
+      tf.keras.layers.MaxPooling2D(),
+      tf.keras.layers.Flatten(),
+      tf.keras.layers.Dense(64, activation='relu'),
+      tf.keras.layers.Dense(10, activation='softmax')
+    ])
+
+  return model
+  
+# 체크포인트들을 저장하기 위해서 체크포인트 디렉토리를 생성합니다.
+checkpoint_dir = './training_checkpoints'
+checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
+
+# %%
+# (4) 손실함수 정의하기
+
+# 분산학습을 하지 않을 때에는 batch에 대해 loss_object를 "한번만 계산"하면 손실 계산이 완료됨
+# 그러나 분산학습 시에는 batch를 각 분산장치 (GPU)에 분산배치 시키므로, loss_object는 "분산장치 개수만큼 반복계산"됨.
+## 예를들어, batch크기가 64이고 GPU가 4대면 분산배치의 크기는 16임.
+
+# 때문에 분산학습 시에는 loss_object 개수 (= GPU 개수) 만큼의 Gradient가 계산됨.
+# 비록 분산학습 중이지만 모델은 하나이기 때문에 결국 파라미터들을 동기화하여 업데이트 할 필요가 있음
+# 파라미터 동기화를 위해 모든 분산장치에서 각 loss에 대해 계산된 Gradient들을 더하는 작업을하므로 각 loss들을 미리 batch 크기로 나누어 average_loss로 만들어 줄 필요가 있음.
+# 이를 통해 "Gradient는 각 GPU에서 각 분산배치별로 따로 구했으나" 모델의 파라미터는 "평균적인 Gradient 방향으로 동기화되어 업데이트" 됨.
+
+## 중요) 참고로, 분산학습시에는 우리가 일반적으로 말하는 batch를 전역배치 (GLOBAL_BATCH), 각 장치에 분산되는 배치를 배치/분산배치/복제배치/지역배치 (BATCH/DISTRIBUTE_BATCH/REPLICA_BATCH/LOCAL_BATCH)라고 표현함을 주의하자. 
+
+with strategy.scope():
+  # reduction을 `none`으로 설정합니다. 그래서 우리는 축소를 나중에 하고,
+  # GLOBAL_BATCH_SIZE로 나눌 수 있습니다.
+  loss_object = tf.keras.losses.SparseCategoricalCrossentropy(
+      reduction=tf.keras.losses.Reduction.NONE)
+  # 또는 loss_fn = tf.keras.losses.sparse_categorical_crossentropy를 사용해도 됩니다.
+  def compute_loss(labels, predictions):
+    per_example_loss = loss_object(labels, predictions)
+    return tf.nn.compute_average_loss(per_example_loss, global_batch_size=GLOBAL_BATCH_SIZE)
+
+# %%
+# 이 지표(metrics)는 테스트 손실과 훈련 정확도, 테스트 정확도를 기록합니다. .result()를 사용해서 누적된 통계값들을 언제나 볼 수 있습니다.
+with strategy.scope():
+  test_loss = tf.keras.metrics.Mean(name='test_loss')
+
+  train_accuracy = tf.keras.metrics.SparseCategoricalAccuracy(
+      name='train_accuracy')
+  test_accuracy = tf.keras.metrics.SparseCategoricalAccuracy(
+      name='test_accuracy')
+
+# %%
+# 중요) 모델과 옵티마이저는 `strategy.scope()`에서 만들어져야 합니다. 
+
+# 분산장치별로 분산된 배치들은 (1) 각 GPU에 복제된 "모델"에 인풋으로 입력되어 순전파가 진행되며, 
+# (2) 순전파된 최종 아웃풋은 손실함수를 따라 "평균/정규화 손실"이 계산되고
+# (3) 계산된 손실과 복제된 각 모델들의 파라미터에 대해 "각 그라디언트"가 계산되고
+# (4) "옵티마이저"는 계산된 그라디언트를 모두 더한 뒤 apply_gradients(), 일명 최적화 or 파라미터 업데이트를 수행한다.
+
+# 위의 학습과정에서 우리는 "분산된 배치"들에 대한 연산이 수행되는 객체 혹은 연산의 결과객체는
+# (1) "모델", (2) "손실", (3) "그라디언트", (4) "옵티마이저" 등 임을 알수 있다.
+# 분산배치는 strategy.experimental_distribute_dataset()를 통해 생성되었으므로, 모델, 손실, 그라디언트, 옵티마이저가 
+# 분산배치에 대한 연산을 하기 위해선 이들이 전부 strategy.scope() 안에서 정의되어야 함.
+
+# 또한, loop문을 통해 각 분산배치들이 Model에 전달되는 경우, 훈련 루프 / 검증 루프 역시 strategy.scope() 안에 정의되어야 함.
+
+with strategy.scope():
+    model = create_model() # (1) 모델 선언
+
+    optimizer = tf.keras.optimizers.Adam() # (2) 옵티마이저 선언
+
+    checkpoint = tf.train.Checkpoint(optimizer=optimizer, model=model) # (3) 체크포인트 선언
+
+# %%
+with strategy.scope():
+  def train_step(inputs):
+    images, labels = inputs
+
+    with tf.GradientTape() as tape:
+      predictions = model(images, training=True)
+      loss = compute_loss(labels, predictions)
+
+    gradients = tape.gradient(loss, model.trainable_variables)
+    optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+
+    train_accuracy.update_state(labels, predictions)
+    return loss 
+
+  def test_step(inputs):
+    images, labels = inputs
+
+    predictions = model(images, training=False)
+    t_loss = loss_object(labels, predictions)
+
+    test_loss.update_state(t_loss)
+    test_accuracy.update_state(labels, predictions)
+
+# %%
+with strategy.scope():
+  # `experimental_run_v2`는 주어진 계산 (train_step)을 복사하고,
+  # 분산된 입력 (dataset_inputs)으로 계산을 수행합니다.
+  
+  @tf.function
+  def distributed_train_step(dataset_inputs):
+    per_replica_losses = strategy.experimental_run_v2(train_step,
+                                                      args=(dataset_inputs,))
+    return strategy.reduce(tf.distribute.ReduceOp.SUM, per_replica_losses,
+                           axis=None)
+ 
+  @tf.function
+  def distributed_test_step(dataset_inputs):
+    return strategy.experimental_run_v2(test_step, args=(dataset_inputs,))
+
+  for epoch in range(EPOCHS):
+    # 훈련 루프
+    total_loss = 0.0
+    num_batches = 0
+    for x in train_dist_dataset:
+      total_loss += distributed_train_step(x)
+      num_batches += 1
+    train_loss = total_loss / num_batches
+
+    # 테스트 루프
+    for x in test_dist_dataset:
+      distributed_test_step(x)
+
+    if epoch % 2 == 0:
+      checkpoint.save(checkpoint_prefix)
+
+    template = ("에포크 {}, 손실: {}, 정확도: {}, 테스트 손실: {}, "
+                "테스트 정확도: {}")
+    print (template.format(epoch+1, train_loss,
+                           train_accuracy.result()*100, test_loss.result(),
+                           test_accuracy.result()*100))
+
+    test_loss.reset_states()
+    train_accuracy.reset_states()
+    test_accuracy.reset_states()
+# %%

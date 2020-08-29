@@ -8,7 +8,7 @@
 # mnist = tf.keras.datasets.fashion_mnist
 # (x_train, y_train), (x_test, y_test) = mnist.load_data()
 
-# # 0~255 범위의 픽셀값을 0~1로 정규화
+# # 0~255 범위의 픽셀값을 0~1로 정규화k
 # x_train, x_test = x_train / 255.0, x_test / 255.0
 
 
